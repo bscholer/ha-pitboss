@@ -2,6 +2,7 @@ from unittest.mock import Mock
 
 import pytest
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import UpdateFailed
 from pytboss.exceptions import (
@@ -15,6 +16,7 @@ from pytboss.grills import StateDict
 from custom_components.pitboss.const import (
     ACTIVE_SCAN_INTERVAL,
     STANDBY_SCAN_INTERVAL,
+    UNAUTHORIZED_BEFORE_REAUTH,
 )
 from custom_components.pitboss.coordinator import PitBossDataUpdateCoordinator
 
@@ -423,3 +425,34 @@ async def test_a_unit_flip_arriving_by_poll(
     await coordinator.async_refresh()
 
     assert coordinator.probe_target(3) == 74
+
+
+async def test_a_blip_of_unauthorized_does_not_ask_for_a_password(
+    coordinator: PitBossDataUpdateCoordinator, mock_pitboss: Mock
+) -> None:
+    coordinator.data = {"grillTemp": 225}
+    mock_pitboss.get_state.side_effect = Unauthorized("Unauthorized", 401)
+
+    for _ in range(UNAUTHORIZED_BEFORE_REAUTH - 1):
+        with pytest.raises(UpdateFailed):
+            await coordinator._async_update_data()
+    with pytest.raises(ConfigEntryAuthFailed):
+        await coordinator._async_update_data()
+
+
+async def test_a_good_poll_resets_the_unauthorized_count(
+    coordinator: PitBossDataUpdateCoordinator, mock_pitboss: Mock
+) -> None:
+    coordinator.data = {"grillTemp": 225}
+    mock_pitboss.get_state.side_effect = Unauthorized("Unauthorized", 401)
+    for _ in range(UNAUTHORIZED_BEFORE_REAUTH - 1):
+        with pytest.raises(UpdateFailed):
+            await coordinator._async_update_data()
+
+    mock_pitboss.get_state.side_effect = None
+    mock_pitboss.get_state.return_value = {"grillTemp": 230}
+    await coordinator._async_update_data()
+
+    mock_pitboss.get_state.side_effect = Unauthorized("Unauthorized", 401)
+    with pytest.raises(UpdateFailed):
+        await coordinator._async_update_data()

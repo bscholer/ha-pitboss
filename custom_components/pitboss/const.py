@@ -25,6 +25,9 @@ STANDBY_SCAN_INTERVAL = timedelta(seconds=60)
 # turns a lost ten-second poll into a sixty-second gap in the one situation
 # where freshness matters most. Two in a row is a pattern.
 FAILURES_BEFORE_BACKOFF = 2
+# Rejected polls in a row before asking for a new password. The key comes from
+# the grill's uptime, so a restarted controller rejects a correct password.
+UNAUTHORIZED_BEFORE_REAUTH = 3
 # Diagnostics change slowly; no need to read them at the poll rate.
 SYS_INFO_INTERVAL = 60.0
 PROTOCOL_WSS = "wss"

@@ -31,6 +31,7 @@ from .const import (
     MCU_SETTLE_SECONDS,
     STANDBY_SCAN_INTERVAL,
     SYS_INFO_INTERVAL,
+    UNAUTHORIZED_BEFORE_REAUTH,
 )
 
 
@@ -104,6 +105,7 @@ class PitBossDataUpdateCoordinator(DataUpdateCoordinator[StateDict]):
         self._cancel_setpoint_settle: CALLBACK_TYPE | None = None
         # Consecutive failed cycles, for the backoff decision below.
         self._failed_polls = 0
+        self._unauthorized_polls = 0
 
     def accepted_setpoints(self, unit: str) -> list[float]:
         """Grill setpoints the control board honours, expressed in `unit`.
@@ -611,6 +613,7 @@ class PitBossDataUpdateCoordinator(DataUpdateCoordinator[StateDict]):
         # a reconnect if push notifications stop being delivered.
         try:
             state = self._merge_state(await self.api.get_state())
+            self._unauthorized_polls = 0
             self._apply_poll_interval(state)
             await self._async_refresh_probe_targets(state)
             return state
@@ -623,6 +626,14 @@ class PitBossDataUpdateCoordinator(DataUpdateCoordinator[StateDict]):
             # Retrying cannot fix that, and on a transport where `PB.GetState`
             # is itself password-gated it takes the whole integration down --
             # so ask for the password instead of retrying forever.
+            # A restarted controller briefly rejects a correct password, so
+            # only a repeat rejection from a known-good grill is reauth.
+            self._unauthorized_polls += 1
+            if (
+                self.data is not None
+                and self._unauthorized_polls < UNAUTHORIZED_BEFORE_REAUTH
+            ):
+                raise UpdateFailed("Grill rejected the password; will retry") from ex
             raise ConfigEntryAuthFailed(
                 "The grill rejected the stored password"
             ) from ex
